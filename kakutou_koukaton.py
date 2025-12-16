@@ -1,157 +1,159 @@
-# ==============================================
-# Pygame 共通基本コード一式（単一ファイル）
-# 6人開発・初期段階向け / 再利用前提
-# ==============================================
-
-import math
-import os
-import random
-import sys
-import time
 import pygame as pg
-# =====================
-# 設定（config相当）
-# =====================
-WIDTH = 1100
-HEIGHT = 650
-FPS = 60
-BG_COLOR = (255, 255, 255)
+import sys
+import os
+
+# 初期設定
+WIDTH, HEIGHT = 1000, 600
+FLOOR = HEIGHT - 50
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
+pg.init()
+screen = pg.display.set_mode((WIDTH, HEIGHT))
+pg.display.set_caption("Mini Street Fighter")
+clock = pg.time.Clock()
 
 # =====================
-# ユーティリティ関数
+# ファイタークラス
 # =====================
-
-def check_bound(rect: pg.Rect) -> tuple[bool, bool]:
-    """
-    Rectが画面内に収まっているか判定
-    戻り値: (横方向OK, 縦方向OK)
-    """
-    x_ok = 0 <= rect.left and rect.right <= WIDTH
-    y_ok = 0 <= rect.top and rect.bottom <= HEIGHT
-    return x_ok, y_ok
-
-
-# =====================
-# Entity（全キャラ共通基底）
-# =====================
-
-class Entity(pg.sprite.Sprite):
-    def __init__(self, image: pg.Surface, pos: tuple[int, int]):
+class Fighter(pg.sprite.Sprite):
+    def __init__(self, x, color, keys):
         super().__init__()
-        self.image = image
-        self.rect = self.image.get_rect(center=pos)
+        self.image = pg.Surface((60, 120))
+        self.image.fill(color)
+        self.rect = self.image.get_rect()
+        self.rect.bottomleft = (x, FLOOR)
+
+        self.vx = 0
+        self.vy = 0
+        self.on_ground = True
         self.hp = 100
-        self.alive = True
+        self.keys = keys
+        self.facing = 1  # 1:右向き -1:左向き
 
-    def take_damage(self, amount: int):
-        self.hp -= amount
-        if self.hp <= 0:
-            self.alive = False
+    def update(self, key_lst):
+        self.vx = 0
+
+        if key_lst[self.keys["left"]]:
+            self.vx = -6
+            self.facing = -1
+        if key_lst[self.keys["right"]]:
+            self.vx = 6
+            self.facing = 1
+
+        # ジャンプ
+        if key_lst[self.keys["jump"]] and self.on_ground:
+            self.vy = -20
+            self.on_ground = False
+
+        # 重力
+        self.vy += 1
+
+        self.rect.x += self.vx
+        self.rect.y += self.vy
+
+        # 着地判定
+        if self.rect.bottom >= FLOOR:
+            self.rect.bottom = FLOOR
+            self.vy = 0
+            self.on_ground = True
+
+# =====================
+# 攻撃判定（HitBox）
+# =====================
+class Attack(pg.sprite.Sprite):
+    def __init__(self, fighter):
+        super().__init__()
+        self.image = pg.Surface((40, 20))
+        self.image.fill((255, 0, 0))
+        self.rect = self.image.get_rect()
+
+        if fighter.facing == 1:
+            self.rect.midleft = fighter.rect.midright
+        else:
+            self.rect.midright = fighter.rect.midleft
+
+        self.life = 10  # 10フレームだけ存在
 
     def update(self):
-        pass
-
-
-# =====================
-# 当たり判定
-# =====================
-
-def hit_check(attacker, defender, damage: int = 1):
-    """
-    attacker.attack_rect が存在し、 defender.rect と衝突したらダメージ
-    """
-    if not hasattr(attacker, "attack_rect"):
-        return
-    atk = attacker.attack_rect
-    if atk and atk.colliderect(defender.rect):
-        defender.take_damage(damage)
-
+        self.life -= 1
+        if self.life <= 0:
+            self.kill()
 
 # =====================
-# UI（HPバーなど）
+# HPバー描画
 # =====================
-
-class HPBar:
-    def __init__(self, pos: tuple[int, int], size=(200, 20), max_hp=100):
-        self.pos = pos
-        self.size = size
-        self.max_hp = max_hp
-
-    def draw(self, screen: pg.Surface, hp: int):
-        ratio = max(hp, 0) / self.max_hp
-        bg = pg.Rect(*self.pos, *self.size)
-        fg = pg.Rect(*self.pos, int(self.size[0] * ratio), self.size[1])
-        pg.draw.rect(screen, (80, 80, 80), bg)
-        pg.draw.rect(screen, (0, 200, 0), fg)
-
+def draw_hp(screen, fighter, x):
+    pg.draw.rect(screen, (255, 0, 0), (x, 20, 300, 20))
+    pg.draw.rect(screen, (0, 255, 0), (x, 20, 3 * fighter.hp, 20))
 
 # =====================
-# Game（ゲームループ中核）
+# メイン
 # =====================
-
-class Game:
-    def __init__(self, screen: pg.Surface):
-        self.screen = screen
-        self.clock = pg.time.Clock()
-        self.sprites = pg.sprite.Group()
-        self.running = True
-
-    def update(self):
-        self.sprites.update()
-
-    def draw(self):
-        self.screen.fill(BG_COLOR)
-        self.sprites.draw(self.screen)
-        pg.display.update()
-
-    def run(self):
-        while self.running:
-            for event in pg.event.get():
-                if event.type == pg.QUIT:
-                    self.running = False
-
-            self.update()
-            self.draw()
-            self.clock.tick(FPS)
-
-
-# =====================
-# main（起動・動作確認）
-# =====================
-
 def main():
-    pg.init()
-    screen = pg.display.set_mode((WIDTH, HEIGHT))
-    pg.display.set_caption("Pygame Game Base Framework")
+    attacks = pg.sprite.Group()
 
-    game = Game(screen)
+    p1 = Fighter(200, (0, 0, 255), {
+        "left": pg.K_a,
+        "right": pg.K_d,
+        "jump": pg.K_w,
+        "attack": pg.K_f
+    })
 
-    # 仮プレイヤー（白い四角）
-    surf = pg.Surface((50, 80))
-    surf.fill((220, 220, 220))
-    player = Entity(surf, (WIDTH // 2, HEIGHT // 2))
-    game.sprites.add(player)
+    p2 = Fighter(700, (255, 0, 0), {
+        "left": pg.K_LEFT,
+        "right": pg.K_RIGHT,
+        "jump": pg.K_UP,
+        "attack": pg.K_RCTRL
+    })
 
-    # 仮HPバー
-    hp_bar = HPBar((20, 20))
+    fighters = pg.sprite.Group(p1, p2)
 
-    while game.running:
+    running = True
+    while running:
+        screen.fill((30, 30, 30))
+        key_lst = pg.key.get_pressed()
+
         for event in pg.event.get():
             if event.type == pg.QUIT:
-                game.running = False
+                running = False
 
-        game.update()
-        game.screen.fill(BG_COLOR)
-        game.sprites.draw(game.screen)
-        hp_bar.draw(game.screen, player.hp)
+            # 攻撃入力
+            if event.type == pg.KEYDOWN:
+                if event.key == p1.keys["attack"]:
+                    attacks.add(Attack(p1))
+                if event.key == p2.keys["attack"]:
+                    attacks.add(Attack(p2))
+
+        # 更新
+        fighters.update(key_lst)
+        attacks.update()
+
+        # 当たり判定
+        if pg.sprite.spritecollide(p1, attacks, True):
+            p1.hp -= 5
+        if pg.sprite.spritecollide(p2, attacks, True):
+            p2.hp -= 5
+
+        # 描画
+        fighters.draw(screen)
+        attacks.draw(screen)
+
+        draw_hp(screen, p1, 50)
+        draw_hp(screen, p2, WIDTH - 350)
+
+        # 勝敗判定
+        if p1.hp <= 0 or p2.hp <= 0:
+            font = pg.font.Font(None, 80)
+            text = font.render("K.O.", True, (255, 255, 0))
+            screen.blit(text, (WIDTH//2 - 80, HEIGHT//2 - 40))
+            pg.display.update()
+            pg.time.delay(2000)
+            return
+
         pg.display.update()
-        game.clock.tick(FPS)
-
-    pg.quit()
-    sys.exit()
-
+        clock.tick(60)
 
 if __name__ == "__main__":
     main()
+    pg.quit()
+    sys.exit()

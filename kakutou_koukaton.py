@@ -79,12 +79,6 @@ class Attack(pg.sprite.Sprite):
         if self.life <= 0:
             self.kill()
 
-# =====================
-# HPバー描画
-# =====================
-def draw_hp(screen, fighter, x):
-    pg.draw.rect(screen, (255, 0, 0), (x, 20, 300, 20))
-    pg.draw.rect(screen, (0, 255, 0), (x, 20, 3 * fighter.hp, 20))
 
 # =====================
 # メイン
@@ -137,9 +131,6 @@ def main():
         # 描画
         fighters.draw(screen)
         attacks.draw(screen)
-
-        draw_hp(screen, p1, 50)
-        draw_hp(screen, p2, WIDTH - 350)
 
         # 勝敗判定
         if p1.hp <= 0 or p2.hp <= 0:
